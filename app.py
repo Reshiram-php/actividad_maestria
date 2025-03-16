@@ -5,8 +5,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 from surprise import Dataset, Reader, KNNBasic, SVD
 from surprise.model_selection import train_test_split
 
-# ---- SEMILLA PARA RESULTADOS CONSISTENTES ----
-np.random.seed(42)
 
 # ---- NUEVA BASE DE DATOS DE CURSOS ----
 cursos = pd.DataFrame({
@@ -52,7 +50,7 @@ usuarios = {
 ratings_data = []
 for usuario, cursos_vistos in usuarios.items():
     for curso_id in cursos_vistos:
-        rating = np.random.randint(1, 6)  # Simulamos calificaciones entre 3 y 5
+        rating = np.random.randint(1, 6)  # Simulamos calificaciones entre 1 y 5
         ratings_data.append([usuario, curso_id, rating])
 
 ratings_df = pd.DataFrame(ratings_data, columns=["usuario", "curso_id", "rating"])
