@@ -2,19 +2,18 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
-from surprise import Dataset, Reader, KNNBasic, SVD
-from surprise.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
-
-# ---- NUEVA BASE DE DATOS DE CURSOS ----
+# ---- BASE DE DATOS DE CURSOS ----
 cursos = pd.DataFrame({
-    "id": list(range(1, 16)),  # IDs del 1 al 15
+    "id": list(range(1, 21)),  
     "nombre": [
         "Python Básico", "Machine Learning", "Deep Learning", "Photoshop", "SEO Avanzado",
         "Desarrollo Web con Django", "Excel para Negocios", "Marketing Digital", 
         "Edición de Video con Premiere", "SQL y Bases de Datos", "JavaScript Avanzado",
         "Ciberseguridad para Empresas", "Blockchain y Criptomonedas", "Diseño UX/UI",
-        "Big Data y Analítica"
+        "Big Data y Analítica", "Análisis de Datos con Python", "Marketing de Contenidos",
+        "Programación en C++", "Gestión de Proyectos Ágil", "Estrategias de Negociación"
     ],
     "descripcion": [
         "Curso para aprender Python desde cero.",
@@ -31,7 +30,12 @@ cursos = pd.DataFrame({
         "Protección de datos y ciberseguridad empresarial.",
         "Introducción a blockchain y criptomonedas.",
         "Principios de diseño UX/UI para aplicaciones y web.",
-        "Uso de Big Data para la toma de decisiones empresariales."
+        "Uso de Big Data para la toma de decisiones empresariales.",
+        "Procesamiento de datos y visualización con Python.",
+        "Cómo crear contenido de calidad para el marketing digital.",
+        "Fundamentos de programación en C++.",
+        "Gestión de proyectos con metodologías ágiles.",
+        "Técnicas avanzadas de negociación y cierre de acuerdos."
     ]
 })
 
@@ -46,39 +50,54 @@ usuarios = {
     "Andrés (Recién graduado)": [1, 3, 10, 15]
 }
 
-# ---- GENERAMOS RATINGS FICTICIOS PARA FILTRADO COLABORATIVO ----
+# ---- GENERAMOS RATINGS FICTICIOS ----
 ratings_data = []
 for usuario, cursos_vistos in usuarios.items():
     for curso_id in cursos_vistos:
-        rating = np.random.randint(1, 6)  # Simulamos calificaciones entre 1 y 5
+        rating = np.random.randint(3, 6)  # Calificaciones entre 3 y 5
         ratings_data.append([usuario, curso_id, rating])
 
 ratings_df = pd.DataFrame(ratings_data, columns=["usuario", "curso_id", "rating"])
 
-# ---- CONFIGURAR FILTRADO COLABORATIVO CON SURPRISE ----
-reader = Reader(rating_scale=(1, 5))
-data = Dataset.load_from_df(ratings_df[['usuario', 'curso_id', 'rating']], reader)
-trainset, testset = train_test_split(data, test_size=0.2)
+# ---- MATRIZ USUARIO-CURSO PARA SIMILARIDAD ----
+matriz_usuarios = ratings_df.pivot(index="usuario", columns="curso_id", values="rating").fillna(0)
 
-model = SVD()
-model.fit(trainset)
+# ---- NORMALIZAR LOS DATOS ----
+scaler = StandardScaler()
+matriz_normalizada = scaler.fit_transform(matriz_usuarios)
 
-# ---- FUNCIÓN PARA OBTENER RECOMENDACIONES ----
+# ---- CALCULAR SIMILARIDAD ENTRE USUARIOS ----
+similitud_usuarios = cosine_similarity(matriz_normalizada)
+usuarios_indices = {usuario: i for i, usuario in enumerate(matriz_usuarios.index)}
+
+# ---- FUNCIÓN PARA RECOMENDAR CURSOS FIJOS ----
 def recomendar_cursos(usuario_seleccionado):
-    cursos_vistos = set(ratings_df[ratings_df["usuario"] == usuario_seleccionado]["curso_id"])
-    cursos_no_vistos = set(cursos["id"]) - cursos_vistos
+    if usuario_seleccionado not in usuarios_indices:
+        return []
+
+    idx_usuario = usuarios_indices[usuario_seleccionado]
+    similitudes = similitud_usuarios[idx_usuario]
+
+    # Usuarios más similares
+    indices_similares = np.argsort(similitudes)[::-1][1:3]
+    usuarios_similares = [list(usuarios_indices.keys())[i] for i in indices_similares]
+
+    # Cursos que el usuario no ha visto
+    cursos_usuario_actual = set(ratings_df[ratings_df["usuario"] == usuario_seleccionado]["curso_id"])
+    cursos_recomendados = set()
+
+    for usuario_similar in usuarios_similares:
+        cursos_similares = set(ratings_df[ratings_df["usuario"] == usuario_similar]["curso_id"])
+        cursos_recomendados.update(cursos_similares - cursos_usuario_actual)
+
+    # Tomar solo 3 cursos recomendados fijos
+    cursos_recomendados = list(cursos_recomendados)[:3]
     
-    predicciones = []
-    for curso_id in cursos_no_vistos:
-        pred = model.predict(usuario_seleccionado, curso_id)
-        predicciones.append((curso_id, pred.est))
-    
-    # Ordenamos por la calificación estimada
-    predicciones.sort(key=lambda x: x[1], reverse=True)
-    
-    # Mostramos las 3 mejores recomendaciones
-    cursos_recomendados = [(curso_id, cursos[cursos["id"] == curso_id]["nombre"].values[0]) for curso_id, _ in predicciones[:3]]
-    return cursos_recomendados
+    return [(curso_id, cursos[cursos["id"] == curso_id]["nombre"].values[0]) for curso_id in cursos_recomendados]
+
+# ---- FUNCIÓN PARA CURSOS ALTERNATIVOS ----
+def cursos_alternativos():
+    return cursos.sample(3)[["id", "nombre"]].values.tolist()
 
 # ---- INTERFAZ EN STREAMLIT ----
 st.title("🎓 Sistema de Recomendación de Cursos")
@@ -86,10 +105,17 @@ st.title("🎓 Sistema de Recomendación de Cursos")
 usuario_seleccionado = st.selectbox("Selecciona tu perfil", list(usuarios.keys()))
 
 if usuario_seleccionado:
-    st.subheader("📌 Tus cursos recomendados:")
+    st.subheader("📌 Tus cursos recomendados (fijos):")
     recomendaciones = recomendar_cursos(usuario_seleccionado)
 
     for curso_id, curso_nombre in recomendaciones:
         if st.button(f"✅ {curso_nombre}"):
             descripcion = cursos[cursos["id"] == curso_id]["descripcion"].values[0]
             st.write(f"📖 **Descripción:** {descripcion}")
+
+    # Sección de cursos alternativos
+    st.subheader("🔄 Cursos alternativos:")
+    if st.button("Ver cursos alternativos"):
+        nuevos_cursos = cursos_alternativos()
+        for curso_id, curso_nombre in nuevos_cursos:
+            st.write(f"📌 {curso_nombre}")
